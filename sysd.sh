@@ -1,38 +1,26 @@
 #!/bin/bash
 
-#Check root permission
+# Check root permission
 
-if [ `whoami` != 'root' ]
-  then
-    echo "You must be root to do this."
-    exit
+if [[ $(id -u) -ne 0 ]]; then
+  echo "You must be root to run this script."
+  exit 1
 fi
 
+# Define function to generate systemd service file
 
-# Creat SystemD Service
+generate_service_file() {
+  local service_name=$1
+  local php_file=$2
+  local service_file="/etc/systemd/system/${service_name}.service"
 
-systemd_init () {
-    echo "Enter the service name, followed by [ENTER]: "
-    read service_name
+  # Check if service file already exists
+  if [[ -f "$service_file" ]]; then
+    echo "Service file already exists: $service_file"
+    exit 1
+  fi
 
-        while [[ "$service_name" =~ [^a-zA-Z0-9] || -z "$service_name" ]]
-            do        
-                echo "The input contains special characters."     
-                echo "Input only alphanumeric characters."     
-                read -p "Enter the service name, followed by [ENTER]: " service_name
-
-            done
-                echo "Successful Input"
-
-    touch /etc/systemd/system/"$service_name".service
-
-    echo "Service created"
-
-# PHP Jobs Path
-
-    read -p "Enter the PHP full file path: " php_path
-
-    cat <<EOT >> /etc/systemd/system/$service_name.service
+  cat <<EOT >>"$service_file"
 [Unit]
 Description=
 
@@ -41,9 +29,8 @@ User=root
 Type=simple
 TimeoutSec=0
 PIDFile=/var/run/$service_name.pid
-ExecStart=/usr/bin/env php $php_path
+ExecStart=/usr/bin/env php "$php_file"
 KillMode=process
-
 Restart=on-failure
 RestartSec=42s
 
@@ -51,16 +38,48 @@ RestartSec=42s
 WantedBy=default.target
 EOT
 
+  echo "Service file created: $service_file"
 }
 
-systemd_init
+# Prompt user for service name and PHP file path
 
-#Starting Service
+read -p "Enter the service name, followed by [ENTER]: " service_name_input
 
-echo "Enabling the service..."
+while [[ ! "$service_name_input" =~ ^[a-zA-Z0-9]+$ ]]; do
+  echo "The input contains special characters."
+  echo "Input only alphanumeric characters."
+  read -p "Enter the service name, followed by [ENTER]: " service_name_input
+done
 
-systemctl enable $service_name"
+echo "Successful input"
 
-echo "Starting the service..."
+read -p "Enter the full path to the PHP file: " php_file_input
 
-systemctl start $service_name"
+while [[ ! -f "$php_file_input" ]]; do
+  echo "The file does not exist or is not readable."
+  read -p "Enter the full path to the PHP file: " php_file_input
+done
+
+echo "Successful input"
+
+# Generate systemd service file
+
+generate_service_file "$service_name_input" "$php_file_input"
+
+# Enable and start the service
+
+systemctl enable "$service_name_input.service"
+if [[ $? -ne 0 ]]; then
+  echo "Failed to enable the service: $service_name_input"
+  exit 1
+fi
+
+echo "Service enabled: $service_name_input"
+
+systemctl start "$service_name_input.service"
+if [[ $? -ne 0 ]]; then
+  echo "Failed to start the service: $service_name_input"
+  exit 1
+fi
+
+echo "Service started: $service_name_input"
